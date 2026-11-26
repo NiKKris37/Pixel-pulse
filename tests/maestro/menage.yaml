@@ -5,17 +5,57 @@ appId: com.christophe.pixelpulse
     visible: "PIXEL PULSE"
     timeout: 60000
 - takeScreenshot: 01-accueil
+
+# Température et historique
+- scrollUntilVisible:
+    element: "HISTORIQUE"
+    timeout: 120000
+- assertVisible: "31,2 °C"
+- tapOn: "HISTORIQUE"
+- extendedWaitUntil:
+    visible: "BATTERIE 24 H"
+    timeout: 30000
+- assertVisible: "Relevés"
+- takeScreenshot: 02-historique
+- tapOn: ".*Retour"
+
+# Grand ménage : aperçu, anciens, doublons, suppression
 - scrollUntilVisible:
     element: "GRAND MÉNAGE"
+    timeout: 120000
+    speed: 60
 - tapOn: "GRAND MÉNAGE"
 - extendedWaitUntil:
     visible: ".*essai gros #1.mp4.*"
     timeout: 60000
-- assertVisible: ".*essai petit.mp4.*"
-- takeScreenshot: 02-menage
+- takeScreenshot: 03-menage
+- longPressOn: ".*essai gros #1.mp4.*"
+- extendedWaitUntil:
+    visible: "FERMER"
+    timeout: 30000
+- takeScreenshot: 04-apercu
+- tapOn: "FERMER"
+- tapOn: "Anciens"
+- assertVisible: ".*essai vieux.mp4.*"
+- assertNotVisible: ".*essai petit.mp4.*"
+- tapOn: "Doublons"
+- extendedWaitUntil:
+    visible: ".*Exemplaire gardé.*"
+    timeout: 60000
+- assertNotVisible: ".*essai petit.mp4.*"
+- takeScreenshot: 05-doublons
+- tapOn: "Tout cocher"
+- tapOn: "SUPPRIMER 1.*"
+- tapOn:
+    text: "(?i)supprimer"
+    index: 0
+- tapOn:
+    text: "(?i)allow|autoriser"
+- extendedWaitUntil:
+    visible: ".*libérés"
+    timeout: 30000
 - tapOn: "Vidéos"
 - tapOn: ".*essai gros #1.mp4.*"
-- takeScreenshot: 03-selection
 - tapOn: "SUPPRIMER 1.*"
 - tapOn:
     text: "(?i)supprimer"
@@ -27,28 +67,58 @@ appId: com.christophe.pixelpulse
     timeout: 30000
 - assertNotVisible: ".*essai gros #1.mp4.*"
 - assertVisible: ".*essai petit.mp4.*"
-- takeScreenshot: 04-supprime
-- back
+- takeScreenshot: 06-supprime
+- tapOn: ".*Retour"
+
+# Test de connexion
+- scrollUntilVisible:
+    element: "TEST DE CONNEXION"
+    timeout: 120000
+    speed: 60
+- tapOn: "TEST DE CONNEXION"
+- tapOn: "LANCER LE TEST"
 - extendedWaitUntil:
-    visible: "PIXEL PULSE"
-    timeout: 30000
+    visible: "Test terminé"
+    timeout: 90000
+- takeScreenshot: 07-connexion
+- tapOn: ".*Retour"
+
+# Couleurs conservées après redémarrage
 - scrollUntilVisible:
     element: "Matrix"
     timeout: 120000
     speed: 80
     visibilityPercentage: 60
 - tapOn: "Matrix"
-- takeScreenshot: 05-couleurs
 - stopApp
 - launchApp
 - scrollUntilVisible:
-    element: "Matrix"
+    element: "Thème : Matrix"
     timeout: 120000
     speed: 80
     visibilityPercentage: 60
-- takeScreenshot: 06-couleurs-conservees
+- takeScreenshot: 08-couleurs
+
+# Widget d'accueil
+- scrollUntilVisible:
+    element: "AJOUTER LE WIDGET"
+    direction: UP
+    timeout: 120000
+- tapOn: "AJOUTER LE WIDGET"
+- tapOn: "(?i)add to home screen|add automatically"
+- pressKey: home
+- extendedWaitUntil:
+    visible: ".*Go libres.*"
+    timeout: 30000
+- takeScreenshot: 09-widget
+
+# Raccourci vers un réglage
+- launchApp
+- scrollUntilVisible:
+    element: "Applications"
+    timeout: 120000
+    speed: 60
 - tapOn: "Applications"
 - extendedWaitUntil:
     notVisible: "PIXEL PULSE"
     timeout: 15000
-- takeScreenshot: 07-raccourci

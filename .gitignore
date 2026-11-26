@@ -1,0 +1,6 @@
+
+# Clés de signature : jamais dans le dépôt
+*.p12
+*.jks
+*.keystore
+KEYSTORE_*

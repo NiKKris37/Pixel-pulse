@@ -1,42 +1,64 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import * as Battery from 'expo-battery';
-import { Paths } from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
+import PixelInfo from '../modules/pixel-info';
+import { addSample, dischargeRate } from './history';
+
+const historyFile = () => new File(Paths.document, 'battery.json');
+
+function loadHistory() {
+  try {
+    const file = historyFile();
+    const data = file.exists ? JSON.parse(file.textSync()) : [];
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    console.warn('Historique illisible', e);
+    return [];
+  }
+}
 
 export function useBattery() {
-  const [data, setData] = useState({ level: null, state: null, saver: false, rate: null });
-  const last = useRef(null);   // dernier niveau lu
-  const anchor = useRef(null); // première baisse observée
+  const [data, setData] = useState({
+    level: null, state: null, saver: false, rate: null, history: [], details: null,
+  });
+  const history = useRef(null);
 
   const read = useCallback(async () => {
     try {
       const p = await Battery.getPowerStateAsync();
       const level = p.batteryLevel >= 0 ? Math.round(p.batteryLevel * 100) : null;
-      let rate = null;
+      history.current ??= loadHistory();
 
-      if (p.batteryState === Battery.BatteryState.UNPLUGGED && level !== null) {
-        const now = Date.now();
-        if (last.current !== null && level < last.current) {
-          if (!anchor.current) {
-            anchor.current = { level, time: now };
-          } else {
-            const hours = (now - anchor.current.time) / 3600000;
-            if (hours > 0) rate = (anchor.current.level - level) / hours;
+      if (level !== null && p.batteryState !== Battery.BatteryState.UNKNOWN) {
+        const plugged = p.batteryState !== Battery.BatteryState.UNPLUGGED;
+        const next = addSample(history.current, { t: Date.now(), level, plugged });
+        if (next !== history.current) {
+          history.current = next;
+          try {
+            await historyFile().write(JSON.stringify(next));
+          } catch (e) {
+            console.warn('Historique non enregistré', e);
           }
         }
-        last.current = level;
-      } else {
-        last.current = null;
-        anchor.current = null;
       }
 
-      setData((old) => ({
+      let details = null;
+      try {
+        details = PixelInfo?.getBattery() ?? null;
+        PixelInfo?.updateWidgets();
+      } catch (e) {
+        console.warn('Détails de batterie indisponibles', e);
+      }
+
+      setData({
         level,
         state: p.batteryState,
         saver: p.lowPowerMode,
-        // on garde la dernière estimation tant qu'on reste sur batterie
-        rate: anchor.current ? (rate ?? old.rate) : null,
-      }));
+        rate: dischargeRate(history.current),
+        history: history.current,
+        details,
+      });
     } catch (e) {
       console.warn('Batterie indisponible', e);
     }

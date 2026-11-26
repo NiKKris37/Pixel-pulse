@@ -118,6 +118,17 @@ export function Row({ label, value }) {
   );
 }
 
+export function Header({ title, color, onBack }) {
+  return (
+    <>
+      <Pressable onPress={onBack} accessibilityRole="button">
+        <Text style={styles.back}>‹ Retour</Text>
+      </Pressable>
+      <Text style={[styles.title, glow(color), { fontSize: 22, letterSpacing: 3 }]}>{title}</Text>
+    </>
+  );
+}
+
 export function NeonButton({ label, color, onPress, wide, disabled }) {
   const scale = useRef(new Animated.Value(1)).current;
   const press = (to) =>

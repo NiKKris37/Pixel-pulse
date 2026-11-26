@@ -6,7 +6,7 @@ const expo = app.expo;
 const build = Number(process.env.BUILD_NUMBER || 1);
 Object.assign(expo, {
   name: 'Pixel Pulse',
-  version: `2.0.${build}`,
+  version: `3.0.${build}`,
   icon: './assets/icon.png',
   userInterfaceStyle: 'dark',
   backgroundColor: '#000000',

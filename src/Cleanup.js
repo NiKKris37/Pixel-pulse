@@ -3,15 +3,18 @@ import { ActivityIndicator, Alert, FlatList, Image, Linking, Pressable, Text, Vi
 import { File } from 'expo-file-system';
 import * as Haptics from 'expo-haptics';
 import * as MediaLibrary from 'expo-media-library/legacy';
-import { formatSize, keepLargest, toFileUri } from './files';
+import { formatSize, identicalGroups, isOld, sameSizeGroups, toFileUri } from './files';
 import { useStorage } from './hooks';
-import { glow } from './theme';
-import { haptic, NeonButton } from './ui';
+import { haptic, Header, NeonButton } from './ui';
+import Preview from './Preview';
 import { styles } from './styles';
 
-const PER_TYPE = 60; // nombre de fichiers gardés par catégorie
+const SHOWN = 150; // nombre maximal de fichiers affichés par catégorie
 const TYPES = ['video', 'photo'];
-const FILTERS = [['all', 'Tout'], ['video', 'Vidéos'], ['photo', 'Photos']];
+const FILTERS = [
+  ['all', 'Tout'], ['video', 'Vidéos'], ['photo', 'Photos'],
+  ['old', 'Anciens'], ['dupes', 'Doublons'],
+];
 
 function sizeOf(asset) {
   try {
@@ -30,7 +33,11 @@ export default function Cleanup({ theme, onBack }) {
   const [filter, setFilter] = useState('all');
   const [message, setMessage] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [dupes, setDupes] = useState(null); // null tant que la comparaison n'est pas faite
+  const [compared, setCompared] = useState('');
   const run = useRef(0); // permet d'abandonner une analyse devenue inutile
+  const compareRun = useRef(0);
   const storage = useStorage(files.length);
 
   const scan = useCallback(async () => {
@@ -46,23 +53,25 @@ export default function Cleanup({ theme, onBack }) {
       setStatus('scan');
       setSelected(new Set());
       setCount(0);
+      setDupes(null);
 
       let seen = 0;
       const found = [];
       for (const mediaType of TYPES) {
-        let top = [];
         let after;
         let more = true;
         while (more) {
           const page = await MediaLibrary.getAssetsAsync({ first: 200, after, mediaType: [mediaType] });
           if (id !== run.current) return;
-          top = keepLargest(top, page.assets.map((a) => ({ ...a, size: sizeOf(a) })), PER_TYPE);
+          for (const a of page.assets) {
+            const size = sizeOf(a);
+            if (size > 0) found.push({ ...a, size });
+          }
           seen += page.assets.length;
           setCount(seen);
           after = page.endCursor;
           more = page.hasNextPage;
         }
-        found.push(...top);
       }
       setFiles(found.sort((a, b) => b.size - a.size));
       setStatus('ready');
@@ -76,6 +85,27 @@ export default function Cleanup({ theme, onBack }) {
     scan();
     return () => { run.current += 1; };
   }, [scan]);
+
+  // Compare le contenu des fichiers de même taille, seulement quand on le demande
+  useEffect(() => {
+    if (filter !== 'dupes' || status !== 'ready' || dupes !== null) return undefined;
+    const id = ++compareRun.current;
+    (async () => {
+      const candidates = sameSizeGroups(files).flat();
+      const digests = new Map();
+      for (let i = 0; i < candidates.length; i += 1) {
+        setCompared(`${i + 1} / ${candidates.length}`);
+        try {
+          digests.set(candidates[i].id, await new File(toFileUri(candidates[i].uri)).digest('MD5'));
+        } catch (e) {
+          console.warn('Fichier illisible', e);
+        }
+        if (id !== compareRun.current) return;
+      }
+      setDupes(identicalGroups(candidates, digests));
+    })();
+    return () => { compareRun.current += 1; };
+  }, [filter, status, dupes, files]);
 
   const toggle = (id) => {
     haptic();
@@ -97,6 +127,9 @@ export default function Cleanup({ theme, onBack }) {
       await MediaLibrary.deleteAssetsAsync(ids);
       const gone = new Set(ids);
       setFiles((old) => old.filter((f) => !gone.has(f.id)));
+      setDupes((old) => old && old
+        .map((g) => g.filter((f) => !gone.has(f.id)))
+        .filter((g) => g.length > 1));
       setSelected(new Set());
       setMessage(`${formatSize(chosenSize)} libérés`);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -125,14 +158,25 @@ export default function Cleanup({ theme, onBack }) {
     setSelected(new Set());
   };
 
-  const shown = filter === 'all' ? files : files.filter((f) => f.mediaType === filter);
+  // Dans les doublons, le premier de chaque groupe ne peut pas être coché
+  let shown;
+  if (filter === 'dupes') {
+    shown = (dupes ?? []).flatMap((g) => g.map((f, i) => ({ ...f, keep: i === 0 })));
+  } else {
+    const matching = files.filter((f) =>
+      filter === 'all' || (filter === 'old' ? isOld(f, Date.now()) : f.mediaType === filter));
+    shown = matching.slice(0, SHOWN);
+  }
+  const copies = filter === 'dupes' ? shown.filter((f) => !f.keep) : [];
+  const comparing = filter === 'dupes' && dupes === null;
 
   const renderItem = ({ item }) => {
     const on = selected.has(item.id);
     return (
       <Pressable
         style={[styles.item, on && { borderColor: theme.main, boxShadow: `0px 0px 12px 0px ${theme.main}` }]}
-        onPress={() => toggle(item.id)}
+        onPress={() => !item.keep && toggle(item.id)}
+        onLongPress={() => { haptic(); setPreview(item); }}
         accessibilityRole="checkbox"
         accessibilityState={{ checked: on }}
       >
@@ -144,10 +188,13 @@ export default function Cleanup({ theme, onBack }) {
           <Text style={styles.swatchName}>
             {new Date(item.modificationTime).toLocaleDateString('fr-FR')}
           </Text>
+          {item.keep && <Text style={[styles.swatchName, { color: theme.third }]}>Exemplaire gardé</Text>}
         </View>
-        <View style={[styles.check, { borderColor: theme.main }, on && { backgroundColor: theme.main }]}>
-          {on && <Text style={styles.checkMark}>✓</Text>}
-        </View>
+        {!item.keep && (
+          <View style={[styles.check, { borderColor: theme.main }, on && { backgroundColor: theme.main }]}>
+            {on && <Text style={styles.checkMark}>✓</Text>}
+          </View>
+        )}
       </Pressable>
     );
   };
@@ -155,10 +202,7 @@ export default function Cleanup({ theme, onBack }) {
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Pressable onPress={onBack} accessibilityRole="button">
-          <Text style={styles.back}>‹ Retour</Text>
-        </Pressable>
-        <Text style={[styles.title, glow(theme.main), { fontSize: 24 }]}>GRAND MÉNAGE</Text>
+        <Header title="GRAND MÉNAGE" color={theme.main} onBack={onBack} />
         {storage && <Text style={styles.subtitle}>{formatSize(storage.free)} libres</Text>}
         {status === 'ready' && (
           <View style={styles.filters}>
@@ -174,6 +218,15 @@ export default function Cleanup({ theme, onBack }) {
             ))}
           </View>
         )}
+        {status === 'ready' && <Text style={styles.hint}>Appui long sur un fichier pour l'aperçu</Text>}
+        {copies.length > 0 && (
+          <Pressable
+            onPress={() => { haptic(); setSelected(new Set(copies.map((f) => f.id))); }}
+            accessibilityRole="button"
+          >
+            <Text style={[styles.link, { color: theme.second }]}>Tout cocher</Text>
+          </Pressable>
+        )}
         {limited && (
           <Text style={styles.note}>
             Accès partiel : seuls les fichiers autorisés apparaissent. Modifie-le dans les réglages de l'application.
@@ -188,7 +241,11 @@ export default function Cleanup({ theme, onBack }) {
           renderItem={renderItem}
           extraData={selected}
           contentContainerStyle={styles.list}
-          ListEmptyComponent={<Text style={styles.note}>Aucun fichier à afficher.</Text>}
+          ListEmptyComponent={
+            <Text style={styles.note}>
+              {comparing ? `Comparaison… ${compared}` : 'Aucun fichier à afficher.'}
+            </Text>
+          }
         />
       ) : (
         <View style={[styles.screen, styles.content, { justifyContent: 'center', gap: 16 }]}>
@@ -226,6 +283,8 @@ export default function Cleanup({ theme, onBack }) {
           />
         </View>
       )}
+
+      {preview && <Preview file={preview} theme={theme} onClose={() => setPreview(null)} />}
     </View>
   );
 }
