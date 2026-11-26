@@ -39,7 +39,14 @@ status=0
 adb exec-out screencap -p > "$RUNNER_TEMP/captures/fin.png" || true
 adb logcat -d -s ReactNativeJS:V AndroidRuntime:E > "$RUNNER_TEMP/captures/logcat.txt" || true
 cat "$RUNNER_TEMP/captures/logcat.txt"
-[ "$status" -eq 0 ] || exit "$status"
+if [ "$status" -ne 0 ]; then
+  echo "--- fenêtre active"; adb shell dumpsys window | grep -E 'mCurrentFocus|mFocusedApp' || true
+  echo "--- textes à l'écran"
+  "$HOME/.maestro/bin/maestro" hierarchy | grep -E '"(text|accessibilityText)" : ".' | head -80 || true
+  echo "--- erreurs Android"
+  adb logcat -d '*:E' | grep -iE 'pixelpulse|AndroidRuntime|ReactNative|expo|ANR in' | tail -40 || true
+  exit "$status"
+fi
 
 # Les fichiers supprimés doivent avoir disparu, les autres rester
 list=$(adb shell ls "$DIR")
