@@ -34,12 +34,18 @@ appId: com.christophe.pixelpulse
     timeout: 30000
 - scrollUntilVisible:
     element: "Matrix"
+    timeout: 120000
+    speed: 80
+    visibilityPercentage: 60
 - tapOn: "Matrix"
 - takeScreenshot: 05-couleurs
 - stopApp
 - launchApp
 - scrollUntilVisible:
     element: "Matrix"
+    timeout: 120000
+    speed: 80
+    visibilityPercentage: 60
 - takeScreenshot: 06-couleurs-conservees
 - tapOn: "Applications"
 - extendedWaitUntil:
