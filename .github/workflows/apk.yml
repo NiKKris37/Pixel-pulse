@@ -3,10 +3,8 @@ name: Construire l'APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-    paths:
-      - App.js
-      - .github/workflows/apk.yml
+    branches: [main, 'claude/**']
+    paths-ignore: ['**.md']
 
 permissions:
   contents: write
@@ -14,7 +12,7 @@ permissions:
 jobs:
   apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v5
 
@@ -27,45 +25,85 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      - name: Tests unitaires
+        run: node --test tests/files.test.mjs
+
       - name: Créer le projet
         run: |
           cd "$RUNNER_TEMP"
-          npx --yes create-expo-app@latest pixel-pulse --template blank
-          cp "$GITHUB_WORKSPACE/App.js" pixel-pulse/App.js
+          npx --yes create-expo-app@latest pixel-pulse --template blank@sdk-58
+          cp -r "$GITHUB_WORKSPACE/App.js" "$GITHUB_WORKSPACE/src" pixel-pulse/
+          cp "$GITHUB_WORKSPACE"/assets/*.png pixel-pulse/assets/
 
       - name: Installer les modules
         run: |
           cd "$RUNNER_TEMP/pixel-pulse"
-          npx expo install expo-battery expo-device expo-file-system expo-intent-launcher expo-network expo-status-bar expo-system-ui react-native-safe-area-context
+          npx expo install expo-battery expo-device expo-file-system expo-haptics expo-intent-launcher expo-media-library expo-network expo-splash-screen expo-status-bar expo-system-ui react-native-safe-area-context
 
       - name: Configurer l'application
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
           cd "$RUNNER_TEMP/pixel-pulse"
-          node <<'JS'
-          const fs = require('fs');
-          const app = JSON.parse(fs.readFileSync('app.json', 'utf8'));
-          Object.assign(app.expo, {
-            name: 'Pixel Pulse',
-            userInterfaceStyle: 'dark',
-            backgroundColor: '#000000',
-          });
-          app.expo.android = { ...app.expo.android, package: 'com.christophe.pixelpulse' };
-          fs.writeFileSync('app.json', JSON.stringify(app, null, 2));
-          JS
+          node "$GITHUB_WORKSPACE/scripts/configurer.js"
 
-      - name: Compiler l'APK
+      - name: Compiler l'APK pour le Pixel
         run: |
           cd "$RUNNER_TEMP/pixel-pulse"
           npx expo prebuild --platform android
           cd android
           chmod +x gradlew
           ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/pixel-pulse.apk"
 
-      - name: Publier l'APK
+      - name: Vérifier la signature (mise à jour possible par-dessus la version 1)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp "$RUNNER_TEMP/pixel-pulse/android/app/build/outputs/apk/release/app-release.apk" pixel-pulse.apk
-          gh release create "v${{ github.run_number }}-${{ github.run_attempt }}" pixel-pulse.apk \
-            --title "Pixel Pulse ${{ github.run_number }}" \
-            --notes "APK pour Pixel 7"
+          signer=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          gh release download v1-1 -p pixel-pulse.apk -D "$RUNNER_TEMP/v1"
+          cert() { "$signer" verify --print-certs "$1" | grep -m1 'SHA-256 digest' | awk '{print $NF}'; }
+          old=$(cert "$RUNNER_TEMP/v1/pixel-pulse.apk"); new=$(cert "$RUNNER_TEMP/pixel-pulse.apk")
+          echo "v1=$old"; echo "nouveau=$new"
+          test -n "$old" && test "$old" = "$new"
+
+      - name: Compiler l'APK pour l'émulateur
+        run: |
+          cd "$RUNNER_TEMP/pixel-pulse/android"
+          ./gradlew assembleRelease -PreactNativeArchitectures=x86_64
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/essai.apk"
+
+      - name: Préparer l'émulateur
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo apt-get update -qq && sudo apt-get install -qq -y ffmpeg
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+
+      - name: Essayer l'application sur un émulateur
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_7
+          script: bash tests/essai.sh
+
+      - name: Conserver les captures d'écran
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captures
+          path: ${{ runner.temp }}/captures
+          if-no-files-found: ignore
+
+      - name: Publier l'APK
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ github.run_number }}-${{ github.run_attempt }}" "$RUNNER_TEMP/pixel-pulse.apk" \
+            --target "$GITHUB_SHA" \
+            --title "Pixel Pulse 2.0.${{ github.run_number }}" \
+            --notes "Grand ménage, couleurs au choix, icône néon et vibrations"

@@ -1,0 +1,48 @@
+appId: com.christophe.pixelpulse
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "PIXEL PULSE"
+    timeout: 60000
+- takeScreenshot: 01-accueil
+- scrollUntilVisible:
+    element: "GRAND MÉNAGE"
+- tapOn: "GRAND MÉNAGE"
+- extendedWaitUntil:
+    visible: ".*essai gros #1.mp4.*"
+    timeout: 60000
+- assertVisible: ".*essai petit.mp4.*"
+- takeScreenshot: 02-menage
+- tapOn: "Vidéos"
+- tapOn: ".*essai gros #1.mp4.*"
+- takeScreenshot: 03-selection
+- tapOn: "SUPPRIMER 1.*"
+- tapOn:
+    text: "(?i)supprimer"
+    index: 0
+- tapOn:
+    text: "(?i)allow|autoriser"
+- extendedWaitUntil:
+    visible: ".*libérés"
+    timeout: 30000
+- assertNotVisible: ".*essai gros #1.mp4.*"
+- assertVisible: ".*essai petit.mp4.*"
+- takeScreenshot: 04-supprime
+- back
+- extendedWaitUntil:
+    visible: "PIXEL PULSE"
+    timeout: 30000
+- scrollUntilVisible:
+    element: "Matrix"
+- tapOn: "Matrix"
+- takeScreenshot: 05-couleurs
+- stopApp
+- launchApp
+- scrollUntilVisible:
+    element: "Matrix"
+- takeScreenshot: 06-couleurs-conservees
+- tapOn: "Applications"
+- extendedWaitUntil:
+    notVisible: "PIXEL PULSE"
+    timeout: 15000
+- takeScreenshot: 07-raccourci
