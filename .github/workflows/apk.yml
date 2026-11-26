@@ -1,0 +1,71 @@
+name: Construire l'APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - App.js
+      - .github/workflows/apk.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Créer le projet
+        run: |
+          cd "$RUNNER_TEMP"
+          npx --yes create-expo-app@latest pixel-pulse --template blank
+          cp "$GITHUB_WORKSPACE/App.js" pixel-pulse/App.js
+
+      - name: Installer les modules
+        run: |
+          cd "$RUNNER_TEMP/pixel-pulse"
+          npx expo install expo-battery expo-device expo-file-system expo-intent-launcher expo-network expo-status-bar expo-system-ui react-native-safe-area-context
+
+      - name: Configurer l'application
+        run: |
+          cd "$RUNNER_TEMP/pixel-pulse"
+          node <<'JS'
+          const fs = require('fs');
+          const app = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+          Object.assign(app.expo, {
+            name: 'Pixel Pulse',
+            userInterfaceStyle: 'dark',
+            backgroundColor: '#000000',
+          });
+          app.expo.android = { ...app.expo.android, package: 'com.christophe.pixelpulse' };
+          fs.writeFileSync('app.json', JSON.stringify(app, null, 2));
+          JS
+
+      - name: Compiler l'APK
+        run: |
+          cd "$RUNNER_TEMP/pixel-pulse"
+          npx expo prebuild --platform android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
+
+      - name: Publier l'APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp "$RUNNER_TEMP/pixel-pulse/android/app/build/outputs/apk/release/app-release.apk" pixel-pulse.apk
+          gh release create "v${{ github.run_number }}-${{ github.run_attempt }}" pixel-pulse.apk \
+            --title "Pixel Pulse ${{ github.run_number }}" \
+            --notes "APK pour Pixel 7"
