@@ -7,8 +7,13 @@ DIR=/sdcard/Movies
 
 ffmpeg -loglevel error -f lavfi -i testsrc=duration=8:size=1280x720:rate=30 -b:v 8M -pix_fmt yuv420p "$RUNNER_TEMP/gros.mp4"
 ffmpeg -loglevel error -f lavfi -i testsrc=duration=1:size=320x240:rate=15 -pix_fmt yuv420p "$RUNNER_TEMP/petit.mp4"
-adb shell mkdir -p $DIR
-adb push "$RUNNER_TEMP/gros.mp4" "$DIR/essai gros #1.mp4"
+# Le stockage partagé peut être prêt après la fin du démarrage
+for i in $(seq 1 60); do
+  adb shell "mkdir -p $DIR && touch $DIR/sonde.mp4 && rm $DIR/sonde.mp4" && break
+  sleep 2
+done
+adb push "$RUNNER_TEMP/gros.mp4" /data/local/tmp/gros.mp4
+adb shell "cp /data/local/tmp/gros.mp4 '$DIR/essai gros #1.mp4'"
 adb push "$RUNNER_TEMP/petit.mp4" "$DIR/essai petit.mp4"
 adb shell content call --uri content://media --method scan_volume --arg external_primary
 sleep 5
